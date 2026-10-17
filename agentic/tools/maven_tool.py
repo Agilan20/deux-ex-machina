@@ -23,6 +23,7 @@ class MavenTool:
 
         # 2. Known default Windows installations
         default_paths = [
+            r"C:\Program Files\Apache\apache-maven-3.9.11\bin\mvn.cmd",
             r"C:\Program Files\Apache\apache-maven-3.9.6\bin\mvn.cmd",
             r"C:\Program Files\Apache\apache-maven-3.9.5\bin\mvn.cmd",
             r"C:\ProgramData\chocolatey\bin\mvn.cmd",
