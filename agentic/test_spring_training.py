@@ -33,7 +33,7 @@ from agentic.agents.validator_pr import ValidatorPRAgent
 console = Console(force_terminal=True, highlight=False)
 
 
-def run_test(publish_pr: bool = False):
+def run_test(publish_pr: bool = False, repo_name: str = "Agilan20/spring-advanced-training", repo_url: str = "https://github.com/Agilan20/spring-advanced-training"):
     console.print(
         Panel(
             "[bold cyan]FalkorDB Real-World Multi-Agent Verification[/]\n"
@@ -68,8 +68,8 @@ def run_test(publish_pr: bool = False):
     # Ingest into FalkorDB
     agent1 = DependencyAnalystAgent(gs, llm)
     agent1.analyze_and_ingest(
-        repo_name="Agilan20/spring-advanced-training",
-        repo_url="https://github.com/Agilan20/spring-advanced-training",
+        repo_name=repo_name,
+        repo_url=repo_url,
         branch="master",
         manifest_path="sat-rest/pom.xml",
         dependency_tree=dep_tree,
@@ -156,11 +156,12 @@ def run_test(publish_pr: bool = False):
     pr_result = agent5.validate_and_draft_pr(
         execution_plan=plan,
         remediation_result=patches,
-        repo_name="Agilan20/spring-advanced-training",
+        repo_name=repo_name,
         publish_pr=publish_pr,
     )
 
     console.print(Panel(pr_result["prBody"], title=f"Draft PR: {pr_result['prTitle']}", border_style="green"))
+    return pr_result
 
 
 if __name__ == "__main__":
