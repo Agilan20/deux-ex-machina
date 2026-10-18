@@ -6,11 +6,12 @@ fully compatible with the Google ADK Web UI, CLI, and Cloud deployments.
 """
 
 from google.adk.agents.llm_agent import LlmAgent
+from agentic.config import ADK_MODEL
 from .remediation_tool import remediate
 
 root_agent = LlmAgent(
     name="FalkorDBRemediationAgent",
-    model="gemini-3.8-flash",
+    model=ADK_MODEL,
     description="Autonomous dependency remediation agent powered by FalkorDB graph blast-radius analysis.",
     instruction=(
         "You are an AI Dependency Remediation Agent powered by FalkorDB graph blast-radius analysis.\n\n"
