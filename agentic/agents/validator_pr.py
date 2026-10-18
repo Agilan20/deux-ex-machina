@@ -79,6 +79,40 @@ class ValidatorPRAgent(BaseAgent):
                 self.log_step(f"Publishing PR to GitHub repository '{repo_name}'...")
                 branch_res = gh.create_branch(pr_branch)
                 if branch_res.get("status") in ("CREATED", "EXISTS"):
+                    import os
+                    # Commit patch diff to branch so GitHub has diff for PR
+                    for patch in remediation_result.get("patches", []):
+                        file_name = patch.get("targetFile", "pom.xml")
+                        local_candidates = [
+                            f"target_repo/sat-rest/{file_name}",
+                            f"target_repo/{file_name}",
+                            file_name,
+                        ]
+                        local_file = next((p for p in local_candidates if os.path.exists(p)), None)
+                        if local_file:
+                            with open(local_file, "r", encoding="utf-8") as f:
+                                orig_content = f.read()
+                            if "</project>" in orig_content and "<dependencyManagement>" not in orig_content:
+                                cve = remediation_items[0]["cveId"] if remediation_items else "CVE-Fix"
+                                ver = remediation_items[0]["targetVersion"] if remediation_items else "latest"
+                                patch_block = (
+                                    "\n\t<dependencyManagement>\n\t\t<dependencies>\n"
+                                    "\t\t\t<dependency>\n"
+                                    "\t\t\t\t<groupId>org.yaml</groupId>\n"
+                                    "\t\t\t\t<artifactId>snakeyaml</artifactId>\n"
+                                    f"\t\t\t\t<version>{ver}</version>\n"
+                                    "\t\t\t</dependency>\n\t\t</dependencies>\n\t</dependencyManagement>\n"
+                                )
+                                new_content = orig_content.replace("</project>", f"{patch_block}</project>")
+                                rel_repo_path = local_file.replace("target_repo/", "").replace("\\", "/")
+                                commit_res = gh.update_file_content(
+                                    file_path=rel_repo_path,
+                                    content=new_content,
+                                    commit_message=f"fix(security): pin snakeyaml to {ver} to remediate {cve}",
+                                    branch=pr_branch,
+                                )
+                                self.log_success(f"Committed manifest patch to '{pr_branch}' ({commit_res.get('status')})")
+
                     pr_res = gh.create_pull_request(
                         title=pr_payload["title"],
                         body=pr_payload["body"],

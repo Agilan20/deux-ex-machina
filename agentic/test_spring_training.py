@@ -33,7 +33,7 @@ from agentic.agents.validator_pr import ValidatorPRAgent
 console = Console(force_terminal=True, highlight=False)
 
 
-def run_test():
+def run_test(publish_pr: bool = False):
     console.print(
         Panel(
             "[bold cyan]FalkorDB Real-World Multi-Agent Verification[/]\n"
@@ -157,11 +157,16 @@ def run_test():
         execution_plan=plan,
         remediation_result=patches,
         repo_name="Agilan20/spring-advanced-training",
-        publish_pr=False,
+        publish_pr=publish_pr,
     )
 
     console.print(Panel(pr_result["prBody"], title=f"Draft PR: {pr_result['prTitle']}", border_style="green"))
 
 
 if __name__ == "__main__":
-    run_test()
+    import argparse
+    parser = argparse.ArgumentParser(description="Test FalkorDB Agentic Remediation on spring-advanced-training")
+    parser.add_argument("--publish-pr", action="store_true", help="Publish Draft PR to GitHub")
+    args = parser.parse_args()
+    run_test(publish_pr=args.publish_pr)
+

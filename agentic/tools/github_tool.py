@@ -29,22 +29,34 @@ class GitHubTool:
     def is_configured(self) -> bool:
         return bool(self.token and self.repository)
 
-    def get_default_branch_sha(self, branch: str = DEFAULT_BRANCH) -> Optional[str]:
+    def get_repo_default_branch(self) -> str:
+        """Fetch repository default branch name (e.g. main, master, develop)."""
+        req = urllib.request.Request(self.base_url, headers=self._headers())
+        try:
+            with urllib.request.urlopen(req) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                return data.get("default_branch", DEFAULT_BRANCH)
+        except Exception:
+            return DEFAULT_BRANCH
+
+    def get_default_branch_sha(self, branch: Optional[str] = None) -> Optional[str]:
         """Fetch the latest commit SHA of the base branch."""
-        url = f"{self.base_url}/git/ref/heads/{branch}"
+        target_branch = branch or self.get_repo_default_branch()
+        url = f"{self.base_url}/git/ref/heads/{target_branch}"
         req = urllib.request.Request(url, headers=self._headers())
         try:
             with urllib.request.urlopen(req) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 return data["object"]["sha"]
-        except Exception as e:
+        except Exception:
             return None
 
-    def create_branch(self, branch_name: str, base_branch: str = DEFAULT_BRANCH) -> Dict[str, Any]:
+    def create_branch(self, branch_name: str, base_branch: Optional[str] = None) -> Dict[str, Any]:
         """Create a new git ref (branch) from the base branch commit SHA."""
-        base_sha = self.get_default_branch_sha(base_branch)
+        target_base = base_branch or self.get_repo_default_branch()
+        base_sha = self.get_default_branch_sha(target_base)
         if not base_sha:
-            return {"status": "ERROR", "message": f"Could not find SHA for branch '{base_branch}'"}
+            return {"status": "ERROR", "message": f"Could not find SHA for branch '{target_base}'"}
 
         url = f"{self.base_url}/git/refs"
         payload = json.dumps({
@@ -71,16 +83,17 @@ class GitHubTool:
         title: str,
         body: str,
         head_branch: str,
-        base_branch: str = DEFAULT_BRANCH,
+        base_branch: Optional[str] = None,
         draft: bool = False,
     ) -> Dict[str, Any]:
         """Submit a Pull Request via GitHub REST API."""
+        target_base = base_branch or self.get_repo_default_branch()
         url = f"{self.base_url}/pulls"
         payload = json.dumps({
             "title": title,
             "body": body,
             "head": head_branch,
-            "base": base_branch,
+            "base": target_base,
             "draft": draft,
         }).encode("utf-8")
 
@@ -97,5 +110,48 @@ class GitHubTool:
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8")
             return {"status": "ERROR", "statusCode": e.code, "message": error_body}
+        except Exception as e:
+            return {"status": "ERROR", "message": str(e)}
+
+    def update_file_content(
+        self,
+        file_path: str,
+        content: str,
+        commit_message: str,
+        branch: str,
+    ) -> Dict[str, Any]:
+        """Commit an updated file directly to a branch via GitHub API."""
+        url = f"{self.base_url}/contents/{file_path}?ref={branch}"
+        headers = self._headers()
+        file_sha = None
+        req = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(req) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                file_sha = data.get("sha")
+        except Exception:
+            pass
+
+        payload_dict = {
+            "message": commit_message,
+            "content": base64.b64encode(content.encode("utf-8")).decode("utf-8"),
+            "branch": branch,
+        }
+        if file_sha:
+            payload_dict["sha"] = file_sha
+
+        put_url = f"{self.base_url}/contents/{file_path}"
+        put_req = urllib.request.Request(
+            put_url,
+            data=json.dumps(payload_dict).encode("utf-8"),
+            headers=headers,
+            method="PUT",
+        )
+        try:
+            with urllib.request.urlopen(put_req) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                return {"status": "SUCCESS", "commitSha": data.get("commit", {}).get("sha")}
+        except urllib.error.HTTPError as e:
+            return {"status": "ERROR", "message": e.read().decode("utf-8")}
         except Exception as e:
             return {"status": "ERROR", "message": str(e)}
