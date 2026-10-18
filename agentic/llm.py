@@ -9,7 +9,14 @@ import os
 import urllib.request
 import urllib.error
 from typing import Any, Dict, Optional
-from agentic.config import GOOGLE_API_KEY, OPENAI_API_KEY, LLM_MODEL
+from agentic.config import (
+    GOOGLE_API_KEY,
+    OPENAI_API_KEY,
+    LLM_MODEL,
+    LLM_PROVIDER,
+    OLLAMA_HOST,
+    OLLAMA_MODEL,
+)
 
 
 class LLMClient:
@@ -17,25 +24,71 @@ class LLMClient:
         self.google_api_key = GOOGLE_API_KEY
         self.openai_api_key = OPENAI_API_KEY
         self.model = LLM_MODEL
+        self.provider = LLM_PROVIDER
+        self.ollama_host = OLLAMA_HOST
+        self.ollama_model = OLLAMA_MODEL
 
     def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
-        """Generate response from Gemini, OpenAI, or fallback engine."""
+        """Generate response from Ollama, Gemini, OpenAI, or fallback engine."""
         errors = []
+
+        # If Ollama is preferred or requested
+        if self.provider == "ollama":
+            try:
+                return self._call_ollama(prompt, system_prompt)
+            except Exception as e:
+                errors.append(f"Ollama: {e}")
+
+        # Try Google Gemini
         if self.google_api_key:
             try:
                 return self._call_gemini(prompt, system_prompt)
             except Exception as e:
                 errors.append(f"Gemini: {e}")
+                # Auto-fallback to local Ollama if Gemini hits rate limits or errors
+                if self.provider != "ollama":
+                    try:
+                        return self._call_ollama(prompt, system_prompt)
+                    except Exception as oe:
+                        errors.append(f"Ollama Fallback: {oe}")
 
+        # Try OpenAI
         if self.openai_api_key:
             try:
                 return self._call_openai(prompt, system_prompt)
             except Exception as e:
                 errors.append(f"OpenAI: {e}")
 
+        # Try Ollama as general fallback if not already tried
+        if self.provider != "ollama" and not self.google_api_key:
+            try:
+                return self._call_ollama(prompt, system_prompt)
+            except Exception as e:
+                errors.append(f"Ollama: {e}")
+
         # Grounded offline fallback
         err_msg = f"[LLM Warnings: {'; '.join(errors)}] " if errors else ""
         return err_msg + self._grounded_fallback(prompt)
+
+    def _call_ollama(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        """Invoke local Ollama REST API directly via localhost:11434 with zero rate limits."""
+        url = f"{self.ollama_host}/api/generate"
+        payload = {
+            "model": self.ollama_model,
+            "prompt": prompt,
+            "stream": False,
+        }
+        if system_prompt:
+            payload["system"] = system_prompt
+
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data.get("response", "").strip()
 
     def _call_gemini(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """Invoke Google Gemini REST API without external heavy client libraries."""

@@ -17,3 +17,11 @@ venv/
 # Allow shared VS Code settings but ignore personal ones
 .vscode/*
 !.vscode/settings.json
+
+# Cloned test repositories
+target_repo/
+
+# Google ADK local session databases & artifacts
+.adk/
+*.db
+
