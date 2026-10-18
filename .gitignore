@@ -20,3 +20,8 @@ venv/
 
 # Cloned test repositories
 target_repo/
+
+# Google ADK local session databases & artifacts
+.adk/
+*.db
+
