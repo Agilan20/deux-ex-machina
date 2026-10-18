@@ -14,11 +14,11 @@ FALKORDB_GRAPH_NAME = os.getenv("FALKORDB_GRAPH_NAME", "software_supply_chain_gr
 # LLM API Keys & Ollama configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip() or None
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").strip() or None
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama" if os.getenv("USE_OLLAMA", "").lower() in ("true", "1") else "gemini")
-LLM_MODEL = os.getenv("LLM_MODEL", "gemini-3.8-flash")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
+LLM_MODEL = os.getenv("LLM_MODEL", "llama3.1:latest")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:latest")
-ADK_MODEL = os.getenv("ADK_MODEL", "ollama/llama3.1" if LLM_PROVIDER == "ollama" else "gemini-3.8-flash")
+ADK_MODEL = os.getenv("ADK_MODEL", "ollama/llama3.1")
 
 # Snyk & GitHub configurations
 SNYK_TOKEN = os.getenv("SNYK_TOKEN", "").strip() or None
