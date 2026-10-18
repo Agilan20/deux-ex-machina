@@ -8,8 +8,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# FalkorDB Graph Name for this system
-FALKORDB_GRAPH_NAME = os.getenv("FALKORDB_GRAPH_NAME", "dependency_remediation_graph")
+# FalkorDB Knowledge Graph Name for software supply chain & remediation
+FALKORDB_GRAPH_NAME = os.getenv("FALKORDB_GRAPH_NAME", "software_supply_chain_graph")
 
 # LLM API Keys
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip() or None

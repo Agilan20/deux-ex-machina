@@ -26,12 +26,13 @@ def _extract_repo_name(repo_url: str) -> str:
     return match.group(1)
 
 
-def remediate(repo_url: str, publish_pr: bool = False) -> Dict[str, Any]:
+def remediate(repo_url: str, publish_pr: bool = False, target_cve: str = None) -> Dict[str, Any]:
     """ADK-compatible tool that runs the full FalkorDB remediation workflow.
 
     Args:
         repo_url: The HTTPS or SSH URL of the GitHub repository to analyse and remediate.
         publish_pr: When True, opens a live Pull Request on GitHub. Default is False (draft PR).
+        target_cve: Optional specific CVE ID (e.g. 'CVE-2022-1471') to target, or None to remediate all dependencies.
 
     Returns:
         dict: A summary of the remediation including PR title, branch, and status.
@@ -42,7 +43,7 @@ def remediate(repo_url: str, publish_pr: bool = False) -> Dict[str, Any]:
         return {"status": "ERROR", "message": f"Invalid repository URL: {exc}"}
 
     try:
-        pr_result = run_test(publish_pr=publish_pr, repo_name=repo_name, repo_url=repo_url)
+        pr_result = run_test(publish_pr=publish_pr, repo_name=repo_name, repo_url=repo_url, target_cve=target_cve)
         if not pr_result:
             return {"status": "ERROR", "message": "Pipeline did not produce PR result."}
 

@@ -66,7 +66,10 @@ class ValidatorPRAgent(BaseAgent):
             self.log_success(f"Validation successful for {cve_id} ({tests_run_count} tests passed, zero regressions)")
 
         # 3. Draft GitHub Pull Request Content
-        pr_branch = f"{REMEDIATION_BRANCH_PREFIX}{remediation_items[0]['cveId'].lower() if remediation_items else 'security-patch'}"
+        if len(remediation_items) > 1:
+            pr_branch = f"{REMEDIATION_BRANCH_PREFIX}security-patch-batch"
+        else:
+            pr_branch = f"{REMEDIATION_BRANCH_PREFIX}{remediation_items[0]['cveId'].lower() if remediation_items else 'security-patch'}"
         pr_payload = self._build_pr_payload(remediation_items, remediation_result, validation_results, pr_branch)
 
         self.log_success(f"Generated GitHub Draft PR payload for branch: [bold cyan]{pr_branch}[/]")
@@ -93,22 +96,42 @@ class ValidatorPRAgent(BaseAgent):
                             with open(local_file, "r", encoding="utf-8") as f:
                                 orig_content = f.read()
                             if "</project>" in orig_content and "<dependencyManagement>" not in orig_content:
-                                cve = remediation_items[0]["cveId"] if remediation_items else "CVE-Fix"
-                                ver = remediation_items[0]["targetVersion"] if remediation_items else "latest"
+                                dependencies_xml = []
+                                seen_coords = set()
+                                for item in remediation_items:
+                                    purl = item.get("vulnerablePackage", "")
+                                    ver = item.get("targetVersion", "latest")
+                                    clean_purl = purl.replace("pkg:maven/", "")
+                                    coords = clean_purl.split("@")[0] if "@" in clean_purl else clean_purl
+                                    parts = coords.split("/")
+                                    group_id = parts[0]
+                                    artifact_id = parts[1] if len(parts) > 1 else parts[0]
+                                    key = f"{group_id}:{artifact_id}"
+                                    if key in seen_coords:
+                                        continue
+                                    seen_coords.add(key)
+                                    dependencies_xml.append(
+                                        f"\t\t\t<dependency>\n"
+                                        f"\t\t\t\t<groupId>{group_id}</groupId>\n"
+                                        f"\t\t\t\t<artifactId>{artifact_id}</artifactId>\n"
+                                        f"\t\t\t\t<version>{ver}</version>\n"
+                                        f"\t\t\t</dependency>"
+                                    )
+                                deps_str = "\n".join(dependencies_xml)
                                 patch_block = (
-                                    "\n\t<dependencyManagement>\n\t\t<dependencies>\n"
-                                    "\t\t\t<dependency>\n"
-                                    "\t\t\t\t<groupId>org.yaml</groupId>\n"
-                                    "\t\t\t\t<artifactId>snakeyaml</artifactId>\n"
-                                    f"\t\t\t\t<version>{ver}</version>\n"
-                                    "\t\t\t</dependency>\n\t\t</dependencies>\n\t</dependencyManagement>\n"
+                                    f"\n\t<dependencyManagement>\n\t\t<dependencies>\n"
+                                    f"{deps_str}\n"
+                                    f"\t\t</dependencies>\n\t</dependencyManagement>\n"
                                 )
                                 new_content = orig_content.replace("</project>", f"{patch_block}</project>")
                                 rel_repo_path = local_file.replace("target_repo/", "").replace("\\", "/")
+                                cve_summary = ", ".join([item["cveId"] for item in remediation_items[:3]])
+                                if len(remediation_items) > 3:
+                                    cve_summary += f" and {len(remediation_items) - 3} more"
                                 commit_res = gh.update_file_content(
                                     file_path=rel_repo_path,
                                     content=new_content,
-                                    commit_message=f"fix(security): pin snakeyaml to {ver} to remediate {cve}",
+                                    commit_message=f"fix(security): batch pin dependencies to remediate {cve_summary}",
                                     branch=pr_branch,
                                 )
                                 self.log_success(f"Committed manifest patch to '{pr_branch}' ({commit_res.get('status')})")
@@ -145,11 +168,13 @@ class ValidatorPRAgent(BaseAgent):
         branch: str,
     ) -> Dict[str, str]:
         """Format markdown body for GitHub PR according to Section 1 & 5 audit evidence spec."""
-        first_cve = remediation_items[0]["cveId"] if remediation_items else "Security Fix"
-        first_pkg = remediation_items[0]["vulnerablePackage"] if remediation_items else "dependencies"
-        target_ver = remediation_items[0]["targetVersion"] if remediation_items else "latest"
-
-        title = f"fix(security): remediate {first_cve} in {first_pkg} via {target_ver}"
+        if len(remediation_items) > 1:
+            title = f"fix(security): batch remediate {len(remediation_items)} vulnerabilities across dependencies"
+        else:
+            first_cve = remediation_items[0]["cveId"] if remediation_items else "Security Fix"
+            first_pkg = remediation_items[0]["vulnerablePackage"] if remediation_items else "dependencies"
+            target_ver = remediation_items[0]["targetVersion"] if remediation_items else "latest"
+            title = f"fix(security): remediate {first_cve} in {first_pkg} via {target_ver}"
 
         # Markdown tables for PR audit evidence
         vuln_rows = []

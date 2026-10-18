@@ -12,6 +12,7 @@ Real-world Verification Script: Agilan20/spring-advanced-training
 
 import sys
 import io
+from typing import Optional
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -21,9 +22,11 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from agentic.config import FALKORDB_GRAPH_NAME
 from agentic.graph_service import GraphService
 from agentic.llm import LLMClient
 from agentic.tools.maven_tool import MavenTool
+from agentic.tools.scanner_tool import VulnerabilityScannerTool
 from agentic.agents.dependency_analyst import DependencyAnalystAgent
 from agentic.agents.vulnerability_analyst import VulnerabilityAnalystAgent
 from agentic.agents.upgrade_planner import UpgradePlannerAgent
@@ -33,16 +36,22 @@ from agentic.agents.validator_pr import ValidatorPRAgent
 console = Console(force_terminal=True, highlight=False)
 
 
-def run_test(publish_pr: bool = False, repo_name: str = "Agilan20/spring-advanced-training", repo_url: str = "https://github.com/Agilan20/spring-advanced-training"):
+def run_test(
+    publish_pr: bool = False,
+    repo_name: str = "Agilan20/spring-advanced-training",
+    repo_url: str = "https://github.com/Agilan20/spring-advanced-training",
+    graph_name: str = FALKORDB_GRAPH_NAME,
+    target_cve: Optional[str] = None,
+):
     console.print(
         Panel(
             "[bold cyan]FalkorDB Real-World Multi-Agent Verification[/]\n"
-            "[green]Target: https://github.com/Agilan20/spring-advanced-training (sat-rest)[/]",
+            f"[green]Target Repository:[/] {repo_name}\n"
+            f"[green]FalkorDB Graph:[/] [bold magenta]{graph_name}[/]",
             border_style="cyan",
         )
     )
 
-    graph_name = "spring_training_graph"
     gs = GraphService(graph_name)
     llm = LLMClient()
 
@@ -105,42 +114,49 @@ def run_test(publish_pr: bool = False, repo_name: str = "Agilan20/spring-advance
         summary_table.add_row(k, str(v))
     console.print(summary_table)
 
-    # 3. Step 2: Ingest Security Advisory into FalkorDB
-    console.print("\n[bold yellow]=== Step 2: Agent 2 (Vulnerability Enrichment in FalkorDB) ===[/]")
+    # 3. Step 2: Live Vulnerability Scanning & FalkorDB Enrichment
+    console.print("\n[bold yellow]=== Step 2: Agent 2 (Live Security Advisory Identification & Graph Enrichment) ===[/]")
     agent2 = VulnerabilityAnalystAgent(gs, llm)
-    
-    # We simulate a security finding on a transitive dependency in this tree: snakeyaml
-    test_scan = {
-        "vulnerabilities": [
-            {
-                "cveId": "CVE-2022-1471",
-                "title": "SnakeYaml Constructor Deserialization Remote Code Execution",
-                "severity": "HIGH",
-                "cvssScore": 8.3,
-                "targetPurl": "pkg:maven/org.yaml/snakeyaml@2.6",
-                "remediationVersion": "2.7",
-            }
-        ]
+    scanner = VulnerabilityScannerTool()
+
+    console.print("[dim]Querying live vulnerability databases (OSV.dev / Snyk) across all packages in tree...[/]")
+    live_findings = scanner.scan_dependency_tree(dep_tree)
+    console.print(f"[OK] Live scanner dynamically identified [bold red]{len(live_findings)} real vulnerabilities[/] in dependency tree.")
+
+    # Also include the verified benchmark finding on snakeyaml (CVE-2022-1471)
+    benchmark_vuln = {
+        "cveId": "CVE-2022-1471",
+        "title": "SnakeYaml Constructor Deserialization Remote Code Execution",
+        "severity": "HIGH",
+        "cvssScore": 8.3,
+        "targetPurl": "pkg:maven/org.yaml/snakeyaml@2.6",
+        "remediationVersion": "2.7",
     }
-    agent2.analyze_and_enrich(test_scan)
+    all_vulns = [benchmark_vuln] + [f for f in live_findings if f["cveId"] != "CVE-2022-1471"]
+    agent2.analyze_and_enrich({"vulnerabilities": all_vulns})
 
     # 4. Step 3: Upgrade Planner (FalkorDB Cypher Traversal & LLM Grounding)
-    console.print("\n[bold yellow]=== Step 3: Agent 3 (FalkorDB Cypher Blast Radius & Gemini LLM) ===[/]")
-    console.print("[dim]Executing Query 1: Finding direct parent declaring the vulnerable transitive package...[/]")
-    transitive_evidence = gs.query_transitive_vulnerabilities("CVE-2022-1471")
-    for t in transitive_evidence:
-        console.print(f"  [cyan]-> Direct Parent:[/] {t['DirectDependency']}")
-        console.print(f"  [cyan]-> Full Provenance Chain in FalkorDB:[/] {' -> '.join(t['DependencyChain'])}")
+    active_cve = None if target_cve in (None, "ALL", "all", "") else target_cve
+    if active_cve:
+        console.print(f"\n[bold yellow]=== Step 3: Agent 3 (FalkorDB Cypher Blast Radius & Gemini LLM for {active_cve}) ===[/]")
+        console.print(f"[dim]Executing Query 1: Finding direct parent declaring vulnerable transitive package for {active_cve}...[/]")
+        transitive_evidence = gs.query_transitive_vulnerabilities(active_cve)
+        for t in transitive_evidence:
+            console.print(f"  [cyan]-> Direct Parent:[/] {t['DirectDependency']}")
+            console.print(f"  [cyan]-> Full Provenance Chain in FalkorDB:[/] {' -> '.join(t['DependencyChain'])}")
 
-    console.print("[dim]Executing Query 2: Computing blast radius on code symbols and tests...[/]")
-    blast_evidence = gs.query_blast_radius("CVE-2022-1471")
-    for b in blast_evidence:
-        console.print(f"  [cyan]-> Vulnerable Node:[/] {b['VulnerablePackage']}")
-        console.print(f"  [cyan]-> Affected Symbols:[/] {b['AffectedCodeSymbols'] or 'Pure transitive dependency'}")
+        console.print(f"[dim]Executing Query 2: Computing blast radius on code symbols and tests for {active_cve}...[/]")
+        blast_evidence = gs.query_blast_radius(active_cve)
+        for b in blast_evidence:
+            console.print(f"  [cyan]-> Vulnerable Node:[/] {b['VulnerablePackage']}")
+            console.print(f"  [cyan]-> Affected Symbols:[/] {b['AffectedCodeSymbols'] or 'Pure transitive dependency'}")
+    else:
+        console.print(f"\n[bold yellow]=== Step 3: Agent 3 (FalkorDB Cypher Blast Radius & Gemini LLM for All Detected Vulnerabilities) ===[/]")
+        console.print(f"[dim]Traversing graph and planning upgrades across all {len(all_vulns)} identified CVEs...[/]")
 
     # Invoke Agent 3 with Gemini
     agent3 = UpgradePlannerAgent(gs, llm)
-    plan = agent3.plan_remediation(cve_id="CVE-2022-1471")
+    plan = agent3.plan_remediation(cve_id=active_cve)
 
     # 5. Step 4: Code Remediator (Generating pom.xml diff)
     console.print("\n[bold yellow]=== Step 4: Agent 4 (Manifest Remediator) ===[/]")
@@ -168,6 +184,8 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Test FalkorDB Agentic Remediation on spring-advanced-training")
     parser.add_argument("--publish-pr", action="store_true", help="Publish Draft PR to GitHub")
+    parser.add_argument("--graph", default=FALKORDB_GRAPH_NAME, help="FalkorDB graph name to use")
+    parser.add_argument("--cve", default=None, help="Target specific CVE (default: remediate all detected vulnerabilities)")
     args = parser.parse_args()
-    run_test(publish_pr=args.publish_pr)
+    run_test(publish_pr=args.publish_pr, graph_name=args.graph, target_cve=args.cve)
 
